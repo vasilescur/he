@@ -5,43 +5,53 @@ Mock database implementation for storing and retrieving data.
 from typing import List
 
 from Pyfhel import Pyfhel, PyPtxt, PyCtxt
+P = 65537
+
 
 class Person:
-    def __init__(self, name):
+    def __init__(self, name: str, pubkey: bytes):
         self.name = name
-        self.balance_ciphertext = None
         self.transactions = []
-        self.HE = None
+
+        self.HE = Pyfhel()
+        self.HE.contextGen(p=P)
+        self.HE.from_bytes_publicKey(pubkey)
+
+        balance = self.HE.encryptInt(20 * 100)    # start with $20
+        self.balance_ciphertext = balance.to_bytes()
 
     def serialize(self) -> str:
-        return f'{self.name}|{self.balance_ciphertext}\n' + '\n'.join([t.serialize() for t in self.transactions])
+        pubkey: bytes = self.HE.to_bytes_publicKey()
+        return f'{self.name}|{pubkey.hex()}|{self.balance_ciphertext.hex()}\n' \
+            + '\n'.join([t.serialize() for t in self.transactions])
     
     @staticmethod
     def deserialize(string: str):
         lines = string.split('\n')
-        name, balance_ciphertext = lines[0].split('|')
+        name, pubkey, balance_ciphertext = lines[0].split('|')
         transactions = [Transaction.deserialize(line) for line in lines[1:-1]]
+        pubkey_bytes: bytes = bytes.fromhex(pubkey)
 
-        person = Person(name)
-        person.balance_ciphertext = balance_ciphertext
+        person = Person(name, pubkey_bytes)
+        person.balance_ciphertext = bytes.fromhex(balance_ciphertext)
         person.transactions = transactions
 
         return person
 
 
 class Transaction:
-    def __init__(self, src, dst, amount):
-        self.sender = src
-        self.receiver = dst
-        self.amount = amount
+    def __init__(self, src: str, dst: str, amount: bytes):
+        self.sender: str = src
+        self.receiver: str = dst
+        self.amount: bytes = amount
 
     def serialize(self) -> str:
-        return f"{self.sender}|{self.receiver}|{self.amount}"
+        return f"{self.sender}|{self.receiver}|{self.amount.hex()}"
     
     @staticmethod
     def deserialize(string: str):
         parts = string.strip().split('|')
-        return Transaction(parts[0], parts[1], parts[2])
+        return Transaction(parts[0], parts[1], bytes.fromhex(parts[2]))
 
 
 class Database:
@@ -59,10 +69,10 @@ class Database:
                 Database.read_from_file('mock.txt')
             except FileNotFoundError:
                 Database._instance.HE = Pyfhel()
-                Database._instance.HE.contextGen(p=65537)
+                Database._instance.HE.contextGen(p=P)
                 Database._instance.HE.keyGen()
                 Database._instance.people = {}
-                Database._instance.add_mock_people()
+                # Database._instance.add_mock_people()
             
         return Database._instance
 
@@ -103,27 +113,29 @@ class Database:
 
     def add_mock_people(self) -> None:
         for name in ['Alice', 'Bob', 'Charlie']:
-            self.add_person(name)
+            HE = Pyfhel()
+            HE.contextGen(p=P)
+            HE.keyGen()
+
+            pubkey = HE.to_bytes_publicKey()
+            self.add_person(name, pubkey)
 
     def get_people(self) -> List[Person]:
         return list(self.people.values())
 
-    def get_balance(self, name) -> Person:
+    def get_balance(self, name) -> bytes:
         person = self.people[name]
         return person.balance_ciphertext
     
-    def get_transactions(self, name) -> Person:
+    def get_transactions(self, name) -> List[Transaction]:
         person = self.people[name]
         return person.transactions
 
-    def add_person(self, name) -> None:
+    def add_person(self, name: str, pubkey: bytes) -> None:
         if name in self.people:
             raise Exception(f'{name} already exists')
         
-        self.people[name] = Person(name)
-        self.people[name].HE = Pyfhel()
-        self.people[name].HE.contextGen(p=65537)
-        self.people[name].HE.keyGen()
+        self.people[name] = Person(name, pubkey)
 
     def remove_person(self, name) -> None:
         del self.people[name]
@@ -134,7 +146,7 @@ class Database:
     def get_privkey(self, name) -> bytes:
         return self.people[name].HE.to_bytes_secretKey()
 
-    def transfer(self, src_name: str, dst_name: str, amount_src_ciphertext, amount_dst_ciphertext) -> None:
+    def transfer(self, src_name: str, dst_name: str, amount_src: bytes, amount_dst: bytes) -> None:
         """
         Reduces the balance of the sender and increases the balance of the receiver, 
         without knowing either balance and without knowing the amount.
@@ -148,21 +160,24 @@ class Database:
         src = self.people[src_name]
         dst = self.people[dst_name]
 
+        amount_src_ciphertext: PyCtxt = PyCtxt(pyfhel=src.HE, serialized=amount_src)
+        amount_dst_ciphertext: PyCtxt = PyCtxt(pyfhel=dst.HE, serialized=amount_dst)
+
         # Reduce the balance of the sender
         src_HE = self.get_HE(src_name)
         src_start_balance = src.balance_ciphertext
-        src_end_balance = src.HE.sub(src_start_balance, amount_src_ciphertext)
+        src_end_balance = src_HE.sub(src_start_balance, amount_src_ciphertext)
         src.balance_ciphertext = src_end_balance
 
         # Increase the balance of the receiver
         dst_HE = self.get_HE(dst_name)
         dst_start_balance = dst.balance_ciphertext
-        dst_end_balance = dst.HE.add(dst_start_balance, amount_dst_ciphertext)
+        dst_end_balance = dst_HE.add(dst_start_balance, amount_dst_ciphertext)
         dst.balance_ciphertext = dst_end_balance
 
         # Add a transaction to the sender
-        src.transactions.append(Transaction(src_name, dst_name, amount_src_ciphertext))
+        src.transactions.append(Transaction(src_name, dst_name, amount_src))
 
         # Add a transaction to the receiver
-        dst.transactions.append(Transaction(dst_name, src_name, amount_dst_ciphertext))
+        dst.transactions.append(Transaction(dst_name, src_name, amount_dst))
 
