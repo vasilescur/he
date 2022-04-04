@@ -24,4 +24,4 @@ The server uses a homomorphic encryption library to process the transaction by
         adding/subtracting the encrypted values to the sender/recipient's encrypted balances.
 
 Users may query their own balance and transaction history at any time and decrypt it using their secret key.
-
+However, the server and host company never have access to view user balances or transaction amounts.
