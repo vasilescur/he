@@ -31,7 +31,7 @@ def get_names() -> List[str]:
     req = requests.get(ENDPOINT + '/names').json()
     return req['names']
 
-def get_pubkey(name: str) -> str:
+def get_pubkey(name: str) -> bytes:
     if name in pubkeys:
         return pubkeys[name]
 
@@ -67,6 +67,7 @@ def main():
     global me 
 
     while True:
+        print()
         try:
             print('> ', end='')
             cmd = input().strip()
@@ -124,22 +125,91 @@ def main():
                     print(get_pubkey(me['name']).hex())
 
             elif cmd == 'balance':
+                if me is None:
+                    print('Error: not logged in.')
+                    continue
+
                 balance: float = get_balance()
                 print(f'$ {balance}')
 
-            elif cmd == 'quit':
+            elif cmd == 'transfer':
+                if me is None:
+                    print('Error: not logged in.')
+                    continue
+
+                print('Target: ', end='')
+                dst = input().strip()
+
+                if dst not in pubkeys or dst == me['name']:
+                    print('Error: invalid target.')
+                    continue
+
+                print('Amount: ', end='')
+                amount = float(input().strip())
+
+                if amount < 0:
+                    print('Error: amount must be positive.')
+                    continue
+
+                # --- Critical section ---
+                # We assume (must find way to ensure) this is tamper-proof.
+
+                balance: float = get_balance()
+                if balance < amount:
+                    print('Error: insufficient balance.')
+                    continue
+
+                src_cipher: bytes = encrypt(amount, get_pubkey(me['name']))
+                dst_cipher: bytes = encrypt(amount, get_pubkey(dst))
+                
+                req = requests.post(ENDPOINT + '/transfer', json={
+                    'src': me['name'],
+                    'dst': dst,
+                    'amount_src_ciphertext': src_cipher.hex(),
+                    'amount_dst_ciphertext': dst_cipher.hex(),
+                })
+
+                # --- End critical section ---
+
+                if req.status_code == 200:
+                    print(f'Sent {amount} to {dst}.')
+                else:
+                    print(f'Failed to send {amount} to {dst}. Status code: {req.status_code}')
+
+            elif cmd == 'transactions':
+                if me is None:
+                    print('Error: not logged in.')
+                    continue
+
+                req = requests.get(ENDPOINT + f'/transactions/{me["name"]}')
+                
+                if req.status_code != 200:
+                    print('Error: failed to fetch transactions.')
+                    continue
+
+                transactions = req.json()['transactions']
+                for t in transactions:
+                    amt_cipher = PyCtxt(pyfhel=me['HE'], serialized=bytes.fromhex(t['amount']), encoding='int')
+                    amt: float = me['HE'].decryptInt(amt_cipher) / 100
+
+                    print(f'{t["src"]} -> {t["dst"]}: $ {amt:.2f}')
+
+            elif cmd == 'quit' or cmd == 'exit':
                 break
 
             elif cmd == 'save db':
                 save_db()
 
             else:
-                print('Unknown command')
+                print('Unknown command. Available commands:')
+                print('  names/Log in <name>/Create user <name>')
+                print('  fetch keys/pubkey <name>')
+                print('  balance/transfer')
+                print('  quit/exit/save db')
 
         except KeyboardInterrupt:
             exit(0)
 
-        print()
 
 if __name__ == '__main__':
     main()

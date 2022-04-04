@@ -1,38 +1,27 @@
 # he
 Money transfer app using homomorphic encryption
 
-## The cool part
+## Introduction
 
-```python
-def transfer(self, src_name: str, dst_name: str, amount_src_ciphertext, amount_dst_ciphertext) -> None:
-        """
-        Reduces the balance of the sender and increases the balance of the receiver, 
-        without knowing either balance and without knowing the amount.
+Homomorphic encryption allows simple arithmetic operations in ciphertext space.
+This means that the users can submit encrypted values,
+        the server operates on those encrypted values and returns an encrypted result,
+        which the user can decrypt and read.
+Essentially, it allows us to safely perform a specific server-side computation
+        without having access to the actual values being computed.
 
-        NOTE: This function does not enforce any constraints on transactions, 
-        such as blocking transactions from senders with insufficient funds. 
-        This function does not (and cannot) ensure that the source and destination 
-        balances are changed by the same amount, must trust client code to enforce.
-        """
-        
-        src = self.people[src_name]
-        dst = self.people[dst_name]
+## Design
 
-        # Reduce the balance of the sender
-        src_HE = self.get_HE(src_name)
-        src_start_balance = src.balance_ciphertext
-        src_end_balance = src.HE.sub(src_start_balance, amount_src_ciphertext)
-        src.balance_ciphertext = src_end_balance
+In this demo app's client-server architecture,
+        a server keeps track of the users and their (encrypted) balances, public keys, and transaction history.
+Meanwhile, each user's client software keeps track of their private key.
 
-        # Increase the balance of the receiver
-        dst_HE = self.get_HE(dst_name)
-        dst_start_balance = dst.balance_ciphertext
-        dst_end_balance = dst.HE.add(dst_start_balance, amount_dst_ciphertext)
-        dst.balance_ciphertext = dst_end_balance
+When a user wants to submit a transaction,
+        the client encrypts the transaction amount once with the sender's public key,
+        and once with the recipient's public key,
+        and sends these encrypted values to the server.
+The server uses a homomorphic encryption library to process the transaction by 
+        adding/subtracting the encrypted values to the sender/recipient's encrypted balances.
 
-        # Add a transaction to the sender
-        src.transactions.append(Transaction(src_name, dst_name, amount_src_ciphertext))
+Users may query their own balance and transaction history at any time and decrypt it using their secret key.
 
-        # Add a transaction to the receiver
-        dst.transactions.append(Transaction(dst_name, src_name, amount_dst_ciphertext))
-```

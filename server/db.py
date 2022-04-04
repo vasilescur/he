@@ -18,7 +18,7 @@ class Person:
         self.HE.from_bytes_publicKey(pubkey)
 
         balance = self.HE.encryptInt(20 * 100)    # start with $20
-        self.balance_ciphertext = balance.to_bytes()
+        self.balance_ciphertext: bytes = balance.to_bytes()
 
     def serialize(self) -> str:
         pubkey: bytes = self.HE.to_bytes_publicKey()
@@ -41,12 +41,12 @@ class Person:
 
 class Transaction:
     def __init__(self, src: str, dst: str, amount: bytes):
-        self.sender: str = src
-        self.receiver: str = dst
+        self.src: str = src
+        self.dst: str = dst
         self.amount: bytes = amount
 
     def serialize(self) -> str:
-        return f"{self.sender}|{self.receiver}|{self.amount.hex()}"
+        return f"{self.src}|{self.dst}|{self.amount.hex()}"
     
     @staticmethod
     def deserialize(string: str):
@@ -160,24 +160,22 @@ class Database:
         src = self.people[src_name]
         dst = self.people[dst_name]
 
-        amount_src_ciphertext: PyCtxt = PyCtxt(pyfhel=src.HE, serialized=amount_src)
-        amount_dst_ciphertext: PyCtxt = PyCtxt(pyfhel=dst.HE, serialized=amount_dst)
+        amount_src_ciphertext: PyCtxt = PyCtxt(pyfhel=src.HE, serialized=amount_src, encoding='int')
+        amount_dst_ciphertext: PyCtxt = PyCtxt(pyfhel=dst.HE, serialized=amount_dst, encoding='int')
 
         # Reduce the balance of the sender
-        src_HE = self.get_HE(src_name)
-        src_start_balance = src.balance_ciphertext
-        src_end_balance = src_HE.sub(src_start_balance, amount_src_ciphertext)
-        src.balance_ciphertext = src_end_balance
+        src_start_balance = PyCtxt(pyfhel=src.HE, serialized=src.balance_ciphertext, encoding='int')
+        src_end_balance: PyCtxt = src.HE.sub(src_start_balance, amount_src_ciphertext)
+        src.balance_ciphertext = src_end_balance.to_bytes()
 
         # Increase the balance of the receiver
-        dst_HE = self.get_HE(dst_name)
-        dst_start_balance = dst.balance_ciphertext
-        dst_end_balance = dst_HE.add(dst_start_balance, amount_dst_ciphertext)
-        dst.balance_ciphertext = dst_end_balance
+        dst_start_balance = PyCtxt(pyfhel=dst.HE, serialized=dst.balance_ciphertext, encoding='int')
+        dst_end_balance: PyCtxt = dst.HE.add(dst_start_balance, amount_dst_ciphertext)
+        dst.balance_ciphertext = dst_end_balance.to_bytes()
 
         # Add a transaction to the sender
         src.transactions.append(Transaction(src_name, dst_name, amount_src))
 
         # Add a transaction to the receiver
-        dst.transactions.append(Transaction(dst_name, src_name, amount_dst))
+        dst.transactions.append(Transaction(src_name, dst_name, amount_dst))
 

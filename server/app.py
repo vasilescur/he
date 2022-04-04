@@ -78,10 +78,31 @@ def transfer():
 
     db = Database.instance()
 
-    db.transfer(src, dst, bytes.fromhex(amount_src_ciphertext), bytes.fromhex(amount_dst_ciphertext))
+    db.transfer(
+        src, 
+        dst, 
+        bytes.fromhex(amount_src_ciphertext), 
+        bytes.fromhex(amount_dst_ciphertext)
+    )
     
     save_db()
     return {}, 200
+
+@app.route('/transactions/<name>', methods=['GET'])
+def get_transactions(name):
+    db = Database.instance()
+
+    transactions = db.get_transactions(name)
+    return {
+        'transactions': [
+            {
+                'src': transaction.src, 
+                'dst': transaction.dst, 
+                'amount': transaction.amount.hex(),
+            } 
+            for transaction in transactions
+        ]
+    }, 200
 
 @app.route('/save_db')
 def save_db():
